@@ -1,0 +1,7 @@
+{
+  "name": "Min Imposter",
+  "description": "A vibrant, real-time social deduction game where players identify the imposter among them based on secret category words. Optimized for mobile-first Arabic/English gameplay.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
