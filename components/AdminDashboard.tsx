@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { TranslationSet, Category, WordPair, Room, Player } from '../types';
 import { INITIAL_CATEGORIES, INITIAL_WORDS } from '../constants';
 
@@ -8,7 +8,7 @@ interface Props {
   t: TranslationSet;
 }
 
-type AdminTab = 'OVERVIEW' | 'CATEGORIES' | 'WORDS' | 'SYNC' | 'ANALYTICS';
+type AdminTab = 'OVERVIEW' | 'CATEGORIES' | 'WORDS' | 'SYNC';
 
 interface ModalState {
   type: 'CATEGORY' | 'WORD' | null;
@@ -21,6 +21,9 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
   const [words, setWords] = useState<WordPair[]>([]);
   const [activeRooms, setActiveRooms] = useState<Room[]>([]);
   const [modal, setModal] = useState<ModalState>({ type: null });
+  
+  const [catSearch, setCatSearch] = useState('');
+  const [wordSearch, setWordSearch] = useState('');
   
   const [catForm, setCatForm] = useState({ ar: '', en: '' });
   const [wordForm, setWordForm] = useState({ secret: '' });
@@ -35,11 +38,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
   const refreshData = () => {
     const roomKeys = Object.keys(localStorage).filter(k => k.startsWith('room_'));
     const rooms: Room[] = roomKeys.map(k => {
-      try {
-        return JSON.parse(localStorage.getItem(k) || '{}');
-      } catch {
-        return null;
-      }
+      try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch { return null; }
     }).filter(Boolean);
     setActiveRooms(rooms);
 
@@ -59,26 +58,19 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
 
   const handleAddCategory = () => {
     if (!catForm.ar) return;
-    const newCat: Category = { 
-      id: 'cat_' + Date.now(), 
-      ar: catForm.ar, 
-      en: catForm.en || catForm.ar 
-    };
+    const newCat: Category = { id: 'cat_' + Date.now(), ar: catForm.ar, en: catForm.en || catForm.ar };
     saveToStorage([...categories, newCat], words);
     setCatForm({ ar: '', en: '' });
     setModal({ type: null });
   };
 
-  const handleAddWord = () => {
+  const handleAddWord = (keepOpen: boolean = false) => {
     if (!wordForm.secret || !modal.categoryId) return;
-    const newWord: WordPair = { 
-      id: 'word_' + Date.now(), 
-      categoryId: modal.categoryId, 
-      secret: wordForm.secret 
-    };
-    saveToStorage(categories, [...words, newWord]);
+    const newWord: WordPair = { id: 'word_' + Date.now(), categoryId: modal.categoryId, secret: wordForm.secret };
+    const updatedWords = [...words, newWord];
+    saveToStorage(categories, updatedWords);
     setWordForm({ secret: '' });
-    setModal({ type: null });
+    if (!keepOpen) setModal({ type: null });
   };
 
   const deleteCategory = (id: string) => {
@@ -94,61 +86,43 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
     saveToStorage(categories, newWords);
   };
 
-  const clearDatabase = () => {
-    if (confirm('تحذير: سيتم حذف جميع التصنيفات والكلمات المخصصة والعودة للإعدادات الأصلية. هل تريد المتابعة؟')) {
-      localStorage.removeItem('db_categories');
-      localStorage.removeItem('db_words');
-      refreshData();
-      alert('✅ تم تصفير قاعدة البيانات');
-    }
-  };
-
   const processSmartData = (rows: string[][]) => {
     const newCats: Category[] = [...categories];
-    const newWords: WordPair[] = [];
+    const newWords: WordPair[] = [...words];
+    let addedCount = 0;
 
-    rows.slice(1).forEach((row, idx) => {
+    rows.forEach((row, idx) => {
       if (row.length < 2 || !row[0] || !row[1]) return;
-      
       const catName = row[0].trim(); 
       const secret = row[1].trim();  
-
+      if (catName.toLowerCase().includes('category') || catName.includes('تصنيف')) return;
       let category = newCats.find(c => c.ar === catName);
       if (!category) {
         category = { id: 'cat_' + Math.random().toString(36).substr(2, 5), ar: catName, en: catName };
         newCats.push(category);
       }
-
-      newWords.push({
-        id: 'w_' + idx + '_' + Date.now(),
-        categoryId: category.id,
-        secret
-      });
+      const isDuplicate = newWords.some(w => w.categoryId === category!.id && w.secret === secret);
+      if (!isDuplicate) {
+        newWords.push({ id: 'w_' + idx + '_' + Date.now(), categoryId: category.id, secret });
+        addedCount++;
+      }
     });
-
-    if (newWords.length > 0) {
-      saveToStorage(newCats, newWords);
-      alert(`✅ نجاح! تم تحديث ${newCats.length} تصنيف و ${newWords.length} كلمة.`);
-    } else {
-      alert('⚠️ لم يتم العثور على بيانات صالحة في الملف.');
-    }
+    saveToStorage(newCats, newWords);
+    alert(`✅ نجاح! تم إضافة ${addedCount} كلمة جديدة وتحديث التصنيفات.`);
   };
 
-  const handleLocalSmartFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const text = event.target?.result as string;
-        const rows = text.split('\n').map(row => 
+        const rows = text.split('\n').filter(line => line.trim()).map(row => 
           row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/^"|"$/g, ''))
         );
         processSmartData(rows);
-      } catch (err) {
-        alert('❌ خطأ في قراءة ملف CSV');
-      }
+      } catch (err) { alert('❌ خطأ في معالجة الملف'); }
     };
     reader.readAsText(file);
   };
@@ -158,179 +132,179 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
     setIsSyncing(true);
     try {
       const response = await fetch(syncUrl);
-      const csvData = await response.text();
-      const rows = csvData.split('\n').map(row => 
+      if (!response.ok) throw new Error('Network response was not ok');
+      const text = await response.text();
+      const rows = text.split('\n').filter(line => line.trim()).map(row => 
         row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/^"|"$/g, ''))
       );
       processSmartData(rows);
-    } catch (e) {
-      alert('❌ فشل المزامنة. تأكد من أن الرابط منشور للويب بصيغة CSV.');
+    } catch (err) {
+      alert('❌ فشل سحب البيانات');
     } finally {
       setIsSyncing(false);
     }
   };
 
-  const getAnalytics = () => {
-    const totalPlayers = activeRooms.reduce((acc, r) => acc + (r.players?.length || 0), 0);
-    const locations = activeRooms.flatMap(r => (r.players || []).map(p => p.location)).filter(Boolean);
-    const winnerStats = activeRooms.filter(r => r.winner).reduce((acc, r) => {
-      if (r.winner === 'PLAYERS') acc.players++;
-      else acc.imposters++;
-      return acc;
-    }, { players: 0, imposters: 0 });
+  const filteredCategories = useMemo(() => 
+    categories.filter(c => c.ar.toLowerCase().includes(catSearch.toLowerCase())), 
+  [categories, catSearch]);
 
-    const categoryUsage: Record<string, number> = {};
+  const filteredWordsGrouped = useMemo(() => {
+    const grouped: Record<string, WordPair[]> = {};
+    words.forEach(w => {
+      if (w.secret.toLowerCase().includes(wordSearch.toLowerCase())) {
+        if (!grouped[w.categoryId]) grouped[w.categoryId] = [];
+        grouped[w.categoryId].push(w);
+      }
+    });
+    return grouped;
+  }, [words, wordSearch]);
+
+  // Statistics Calculation
+  const stats = useMemo(() => {
+    const totalFinished = activeRooms.filter(r => r.winner).length;
+    const playerWins = activeRooms.filter(r => r.winner === 'PLAYERS').length;
+    const imposterWins = activeRooms.filter(r => r.winner === 'IMPOSTERS').length;
+    
+    const catPopularity: Record<string, number> = {};
     activeRooms.forEach(r => {
-      (r.categories || []).forEach(catId => {
-        categoryUsage[catId] = (categoryUsage[catId] || 0) + 1;
+      r.categories.forEach(cid => {
+        catPopularity[cid] = (catPopularity[cid] || 0) + 1;
       });
     });
 
-    return { totalPlayers, locations, winnerStats, categoryUsage };
-  };
+    const sortedCats = Object.entries(catPopularity)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, count]) => ({
+        name: categories.find(c => c.id === id)?.ar || id,
+        count
+      }));
 
-  const analytics = getAnalytics();
+    return { totalFinished, playerWins, imposterWins, sortedCats };
+  }, [activeRooms, categories]);
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-20">
+    <div className="max-w-6xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
+      {/* Modals */}
       {modal.type && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl">
           <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in duration-200">
             <h3 className="text-2xl font-black text-slate-800 mb-6 text-center">
-              {modal.type === 'CATEGORY' ? 'إضافة تصنيف' : 'إضافة كلمة'}
+              {modal.type === 'CATEGORY' ? 'إضافة تصنيف' : 'إضافة كلمات'}
             </h3>
-            
             <div className="space-y-4 text-right">
               {modal.type === 'CATEGORY' ? (
-                <>
-                  <label className="text-xs font-bold text-slate-400 block px-1">اسم التصنيف</label>
-                  <input 
-                    type="text" 
-                    placeholder="مثال: مدن سعودية 🇸🇦" 
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-900 font-bold outline-none focus:border-amber-400 transition-all"
-                    value={catForm.ar} 
-                    onChange={e => setCatForm({...catForm, ar: e.target.value})}
-                  />
-                  <button onClick={handleAddCategory} className="w-full bg-slate-800 text-white font-black py-5 rounded-2xl mt-4 hover:bg-slate-900 shadow-lg active:scale-95 transition-all">حفظ ✅</button>
-                </>
+                <input type="text" placeholder="اسم التصنيف" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-900 font-bold outline-none focus:border-amber-400" value={catForm.ar} onChange={e => setCatForm({...catForm, ar: e.target.value})} autoFocus />
               ) : (
-                <>
-                  <label className="text-xs font-bold text-slate-400 block px-1">الكلمة السرية (للمواطنين)</label>
-                  <input 
-                    type="text" 
-                    placeholder="مثال: كبسة"
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-900 font-bold outline-none focus:border-emerald-400"
-                    value={wordForm.secret} 
-                    onChange={e => setWordForm({...wordForm, secret: e.target.value})}
-                  />
-                  <p className="text-[10px] text-slate-400 font-bold">ملاحظة: الامبوستر لن يعرف هذه الكلمة.</p>
-                  <button onClick={handleAddWord} className="w-full bg-slate-800 text-white font-black py-5 rounded-2xl mt-4 hover:bg-slate-900 shadow-lg active:scale-95 transition-all">تأكيد ✅</button>
-                </>
+                <input type="text" placeholder="الكلمة السرية" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-900 font-bold outline-none focus:border-emerald-400" value={wordForm.secret} onChange={e => setWordForm({...wordForm, secret: e.target.value})} autoFocus onKeyDown={e => e.key === 'Enter' && handleAddWord(true)} />
               )}
-              <button onClick={() => setModal({ type: null })} className="w-full text-slate-400 font-bold py-2">إغلاق</button>
+              <div className="flex gap-2">
+                <button onClick={() => modal.type === 'WORD' ? handleAddWord(true) : handleAddCategory()} className="flex-1 bg-emerald-50 text-emerald-600 font-black py-4 rounded-2xl border border-emerald-100">حفظ مستمر</button>
+                <button onClick={() => modal.type === 'WORD' ? handleAddWord(false) : handleAddCategory()} className="flex-1 bg-slate-800 text-white font-black py-4 rounded-2xl">حفظ وإغلاق</button>
+              </div>
+              <button onClick={() => setModal({ type: null })} className="w-full text-slate-400 font-bold py-2 text-sm">إلغاء</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Header */}
       <header className="flex flex-col md:flex-row justify-between items-center bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl gap-6">
         <div className="text-center md:text-right">
           <h2 className="text-3xl font-black text-white flex items-center justify-center md:justify-start gap-3">
-             <span className="bg-amber-500 text-slate-950 p-2 rounded-xl text-xs font-black uppercase tracking-tighter">ADMIN</span>
-             لوحة الإدارة والتقارير
+             <span className="bg-amber-500 text-slate-950 p-2 rounded-xl text-[10px] font-black uppercase">DASHBOARD</span>
+             لوحة التحكم والتحليل
           </h2>
-          <p className="text-xs text-slate-500 font-bold mt-2 opacity-80">نظام المراقبة والتحكم في المحتوى</p>
         </div>
-        <div className="flex gap-3">
-            <button onClick={clearDatabase} className="bg-red-500/10 text-red-500 border border-red-500/20 px-4 py-2 rounded-xl text-xs font-bold hover:bg-red-500/20">تصفير 🗑️</button>
-            <button onClick={onBack} className="bg-white text-slate-900 px-8 py-2 rounded-xl font-black hover:bg-slate-100 shadow-lg active:scale-95 transition-all">خروج 🎮</button>
-        </div>
+        <button onClick={onBack} className="bg-white text-slate-900 px-8 py-2 rounded-xl font-black hover:bg-slate-100 shadow-lg active:scale-95 transition-all">خروج 🎮</button>
       </header>
 
-      <nav className="flex bg-slate-900/50 p-2 rounded-2xl border border-slate-800/50 shadow-inner overflow-x-auto no-scrollbar">
+      {/* Navigation - Fixed to show CATEGORIES */}
+      <nav className="sticky top-4 z-50 flex bg-slate-900/90 backdrop-blur-md p-2 rounded-3xl border border-slate-800/50 shadow-2xl overflow-x-auto no-scrollbar">
         {[
-          { id: 'OVERVIEW', label: 'الرئيسية', icon: '📊' },
-          { id: 'ANALYTICS', label: 'التقارير', icon: '📈' },
+          { id: 'OVERVIEW', label: 'الإحصائيات', icon: '📊' },
           { id: 'CATEGORIES', label: 'التصنيفات', icon: '📑' },
-          { id: 'WORDS', label: 'الكلمات', icon: '🔤' },
-          { id: 'SYNC', label: 'المزامنة', icon: '🔄' },
+          { id: 'WORDS', label: 'بنك الكلمات', icon: '🔤' },
+          { id: 'SYNC', label: 'المزامنة والرفع', icon: '🔄' },
         ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id as AdminTab)}
-            className={`flex-1 min-w-[100px] py-4 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-2 ${
-              activeTab === tab.id ? 'bg-slate-800 text-white shadow-xl border border-slate-700' : 'text-slate-500 hover:text-slate-300'
-            }`}
-          >
-            <span className="text-lg">{tab.icon}</span>
-            <span>{tab.label}</span>
+          <button key={tab.id} onClick={() => setActiveTab(tab.id as AdminTab)} className={`flex-1 min-w-[120px] py-4 rounded-2xl font-black text-[11px] flex items-center justify-center gap-2 transition-all ${activeTab === tab.id ? 'bg-slate-700 text-white border border-slate-600 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+            <span className="text-lg">{tab.icon}</span><span>{tab.label}</span>
           </button>
         ))}
       </nav>
 
-      <main className="min-h-[500px]">
+      {/* Main Content */}
+      <main>
         {activeTab === 'OVERVIEW' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in duration-500">
-            <div className="bg-slate-900 p-10 rounded-[2.5rem] border border-slate-800 text-center shadow-xl">
-              <p className="text-xs font-black text-slate-500 mb-4 uppercase tracking-[0.2em]">عدد التصنيفات</p>
-              <p className="text-7xl font-black text-emerald-400">{categories.length}</p>
+          <div className="space-y-8 animate-in slide-in-from-bottom-4">
+            {/* Top Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 text-center shadow-xl relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 blur-3xl rounded-full"></div>
+                <p className="text-[10px] text-slate-500 font-black mb-4 uppercase tracking-widest">التصنيفات</p>
+                <p className="text-7xl font-black text-emerald-400">{categories.length}</p>
+              </div>
+              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 text-center shadow-xl relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 blur-3xl rounded-full"></div>
+                <p className="text-[10px] text-slate-500 font-black mb-4 uppercase tracking-widest">إجمالي الكلمات</p>
+                <p className="text-7xl font-black text-amber-400">{words.length}</p>
+              </div>
+              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 text-center shadow-xl relative overflow-hidden group">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 blur-3xl rounded-full"></div>
+                <p className="text-[10px] text-slate-500 font-black mb-4 uppercase tracking-widest">الغرف النشطة</p>
+                <p className="text-7xl font-black text-white">{activeRooms.length}</p>
+              </div>
             </div>
-            <div className="bg-slate-900 p-10 rounded-[2.5rem] border border-slate-800 text-center shadow-xl">
-              <p className="text-xs font-black text-slate-500 mb-4 uppercase tracking-[0.2em]">إجمالي الكلمات</p>
-              <p className="text-7xl font-black text-amber-400">{words.length}</p>
-            </div>
-            <div className="bg-slate-900 p-10 rounded-[2.5rem] border border-slate-800 text-center shadow-xl">
-              <p className="text-xs font-black text-slate-500 mb-4 uppercase tracking-[0.2em]">الغرف النشطة</p>
-              <p className="text-7xl font-black text-white">{activeRooms.length}</p>
-            </div>
-          </div>
-        )}
 
-        {activeTab === 'ANALYTICS' && (
-          <div className="space-y-8 animate-in slide-in-from-bottom-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800">
-                <h3 className="text-lg font-black text-white mb-6 flex items-center gap-2"><span>🎯</span> توازن اللعبة (نسبة الفوز)</h3>
-                <div className="space-y-4">
+            {/* Performance Analysis */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 shadow-2xl space-y-8">
+                <h3 className="text-xl font-black text-white flex items-center gap-3">
+                  <span className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">📈</span> تحليل توازن اللعبة
+                </h3>
+                <div className="space-y-6">
                   <div>
-                    <div className="flex justify-between text-xs font-bold text-slate-400 mb-2">
-                        <span>فوز المواطنين</span>
-                        <span>{analytics.winnerStats.players}</span>
+                    <div className="flex justify-between text-[10px] font-black text-slate-400 mb-2 uppercase">
+                      <span>فوز المواطنين</span>
+                      <span className="text-emerald-400">%{stats.totalFinished ? Math.round((stats.playerWins / stats.totalFinished) * 100) : 0}</span>
                     </div>
-                    <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-emerald-500 h-full transition-all duration-1000" 
-                          style={{ width: `${(analytics.winnerStats.players / (Math.max(1, activeRooms.filter(r => r.winner).length))) * 100}%` }}
-                        ></div>
+                    <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden">
+                      <div className="bg-emerald-500 h-full shadow-[0_0_15px_rgba(16,185,129,0.5)] transition-all duration-1000" style={{ width: `${stats.totalFinished ? (stats.playerWins / stats.totalFinished) * 100 : 0}%` }}></div>
                     </div>
                   </div>
                   <div>
-                    <div className="flex justify-between text-xs font-bold text-slate-400 mb-2">
-                        <span>فوز الامبوسترز</span>
-                        <span>{analytics.winnerStats.imposters}</span>
+                    <div className="flex justify-between text-[10px] font-black text-slate-400 mb-2 uppercase">
+                      <span>فوز المنتحل (Imposter)</span>
+                      <span className="text-red-400">%{stats.totalFinished ? Math.round((stats.imposterWins / stats.totalFinished) * 100) : 0}</span>
                     </div>
-                    <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-red-500 h-full transition-all duration-1000" 
-                          style={{ width: `${(analytics.winnerStats.imposters / (Math.max(1, activeRooms.filter(r => r.winner).length))) * 100}%` }}
-                        ></div>
+                    <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden">
+                      <div className="bg-red-500 h-full shadow-[0_0_15px_rgba(239,68,68,0.5)] transition-all duration-1000" style={{ width: `${stats.totalFinished ? (stats.imposterWins / stats.totalFinished) * 100 : 0}%` }}></div>
                     </div>
                   </div>
                 </div>
+                <div className="pt-4 border-t border-slate-800 text-[10px] text-slate-500 font-bold uppercase tracking-widest text-center">
+                  بناءً على {stats.totalFinished} جولة مكتملة
+                </div>
               </div>
 
-              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800">
-                <h3 className="text-lg font-black text-white mb-6 flex items-center gap-2"><span>📍</span> مواقع اللاعبين النشطة</h3>
-                <div className="max-h-[200px] overflow-y-auto no-scrollbar space-y-3">
-                  {analytics.locations.length > 0 ? (
-                    [...new Set(analytics.locations)].map((loc, idx) => (
-                      <div key={idx} className="bg-slate-950 p-4 rounded-2xl flex justify-between items-center border border-slate-800">
-                        <span className="text-slate-300 font-mono text-xs">{loc}</span>
-                        <span className="bg-amber-500 text-slate-950 px-3 py-1 rounded-full text-[10px] font-black uppercase">LIVE</span>
+              <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6">
+                <h3 className="text-xl font-black text-white flex items-center gap-3">
+                  <span className="p-2 bg-amber-500/20 rounded-lg text-amber-400">🔥</span> التصنيفات الأكثر لعباً
+                </h3>
+                <div className="space-y-4">
+                  {stats.sortedCats.length > 0 ? stats.sortedCats.map((cat, i) => (
+                    <div key={i} className="flex items-center justify-between bg-slate-950/50 p-4 rounded-2xl border border-slate-800 group hover:border-amber-500/30 transition-all">
+                      <div className="flex items-center gap-4">
+                        <span className="text-slate-600 font-black text-xs">{i + 1}</span>
+                        <span className="text-white font-bold">{cat.name}</span>
                       </div>
-                    ))
-                  ) : (
-                    <p className="text-center text-slate-600 font-bold py-10 italic">لا توجد بيانات حالياً</p>
+                      <span className="bg-slate-800 text-slate-400 px-3 py-1 rounded-full text-[10px] font-black">
+                        {cat.count} مرة
+                      </span>
+                    </div>
+                  )) : (
+                    <div className="text-center py-20 text-slate-600 font-bold italic">لا توجد بيانات استخدام حالياً</div>
                   )}
                 </div>
               </div>
@@ -339,111 +313,157 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
         )}
 
         {activeTab === 'CATEGORIES' && (
-          <div className="bg-slate-900 rounded-[2.5rem] border border-slate-800 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-6">
-            <div className="p-8 border-b border-slate-800 flex justify-between items-center bg-slate-950/20">
-               <h3 className="text-xl font-black text-white">📑 التصنيفات</h3>
-               <button onClick={() => setModal({ type: 'CATEGORY' })} className="bg-emerald-500 text-slate-950 px-6 py-3 rounded-2xl font-black text-sm hover:bg-emerald-400 active:scale-95 transition-all">
-                 + إضافة تصنيف جديد
-               </button>
+          <div className="bg-slate-900 rounded-[2.5rem] border border-slate-800 shadow-2xl overflow-hidden animate-in fade-in duration-500">
+            <div className="p-8 border-b border-slate-800 bg-slate-950/20 flex flex-col md:flex-row justify-between items-center gap-4">
+               <div>
+                  <h3 className="text-xl font-black text-white">📑 إدارة التصنيفات</h3>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">المجموع: {categories.length}</p>
+               </div>
+               <div className="flex gap-4 w-full md:w-auto">
+                 <input 
+                   type="text" 
+                   placeholder="بحث عن تصنيف..."
+                   className="flex-1 md:w-64 bg-slate-950 border border-slate-800 rounded-2xl px-5 py-3 text-white text-sm focus:border-amber-500 outline-none transition-all"
+                   value={catSearch}
+                   onChange={e => setCatSearch(e.target.value)}
+                 />
+                 <button onClick={() => setModal({ type: 'CATEGORY' })} className="bg-emerald-500 text-slate-950 px-6 py-3 rounded-2xl font-black text-sm hover:bg-emerald-400 transition-all">
+                   + تصنيف جديد
+                 </button>
+               </div>
             </div>
-            <div className="divide-y divide-slate-800">
-              {categories.map(cat => (
-                <div key={cat.id} className="p-8 flex justify-between items-center hover:bg-slate-800/30 group">
-                  <div>
-                    <p className="font-black text-2xl text-white group-hover:text-emerald-400 transition-colors">{cat.ar}</p>
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">ID: {cat.id}</p>
+            <div className="divide-y divide-slate-800 max-h-[600px] overflow-y-auto custom-scrollbar">
+              {filteredCategories.length > 0 ? filteredCategories.map(cat => (
+                <div key={cat.id} className="p-6 md:p-8 flex justify-between items-center hover:bg-slate-800/30 group">
+                  <div className="flex-1">
+                    <p className="font-black text-xl text-white group-hover:text-emerald-400 transition-colors">{cat.ar}</p>
+                    <p className="text-[9px] text-slate-600 font-bold uppercase mt-1">ID: {cat.id}</p>
                   </div>
                   <div className="flex gap-6 items-center">
-                    <div className="text-left">
-                        <p className="text-[10px] font-black text-slate-500 uppercase">Words</p>
+                    <div className="text-left hidden md:block">
+                        <p className="text-[9px] font-black text-slate-500 uppercase">الكلمات</p>
                         <p className="font-black text-white text-xl">{words.filter(w => w.categoryId === cat.id).length}</p>
                     </div>
                     <button onClick={() => deleteCategory(cat.id)} className="bg-red-500/10 text-red-500 p-4 rounded-2xl hover:bg-red-500 hover:text-white transition-all">🗑️</button>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="p-20 text-center text-slate-600 font-bold">لم يتم العثور على تصنيفات</div>
+              )}
             </div>
           </div>
         )}
 
         {activeTab === 'WORDS' && (
-          <div className="space-y-8 animate-in slide-in-from-bottom-6 pb-20">
-            {categories.map(cat => (
-              <div key={cat.id} className="bg-slate-900 rounded-[2.5rem] border border-slate-800 overflow-hidden shadow-xl">
-                <div className="p-6 bg-slate-950/50 border-b border-slate-800 flex justify-between items-center px-10">
-                  <h3 className="font-black text-xl text-white">{cat.ar}</h3>
-                  <button onClick={() => setModal({ type: 'WORD', categoryId: cat.id })} className="text-[10px] bg-emerald-500 text-slate-950 px-4 py-2 rounded-xl font-black">
-                    + إضافة كلمة
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-8">
-                  {words.filter(w => w.categoryId === cat.id).map(word => (
-                    <div key={word.id} className="bg-slate-950/50 p-6 rounded-2xl border border-slate-800 flex justify-between items-center group hover:border-slate-500 transition-all">
-                      <div>
-                        <p className="text-white font-black text-lg">{word.secret}</p>
-                        <p className="text-[10px] text-slate-600 font-bold uppercase">Secret Word</p>
+          <div className="space-y-6">
+            <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 sticky top-[90px] z-40 flex gap-4 shadow-2xl backdrop-blur-md bg-opacity-80">
+              <input type="text" placeholder="بحث سريع عن كلمة..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold outline-none focus:border-emerald-500 shadow-inner" value={wordSearch} onChange={e => setWordSearch(e.target.value)} />
+            </div>
+            {categories.map(cat => {
+              const catWords = filteredWordsGrouped[cat.id] || [];
+              if (wordSearch && catWords.length === 0) return null;
+              return (
+                <div key={cat.id} className="bg-slate-900 rounded-[2.5rem] border border-slate-800 overflow-hidden shadow-xl animate-in fade-in duration-500">
+                  <div className="p-6 bg-slate-950/50 border-b border-slate-800 flex justify-between items-center px-10">
+                    <h3 className="font-black text-xl text-white">{cat.ar} <span className="text-slate-600 text-xs font-bold">({catWords.length} كلمة)</span></h3>
+                    <button onClick={() => setModal({ type: 'WORD', categoryId: cat.id })} className="bg-emerald-500 text-slate-950 px-5 py-2 rounded-xl font-black text-xs hover:bg-emerald-400 transition-all shadow-lg">+ إضافة سريع</button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 p-8 max-h-[500px] overflow-y-auto custom-scrollbar">
+                    {catWords.length > 0 ? catWords.map(word => (
+                      <div key={word.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex justify-between items-center group hover:border-emerald-500 transition-all">
+                        <span className="text-slate-300 font-bold text-xs truncate">{word.secret}</span>
+                        <button onClick={() => deleteWord(word.id)} className="text-slate-700 hover:text-red-500 text-[10px] opacity-0 group-hover:opacity-100 transition-all p-1">✕</button>
                       </div>
-                      <button onClick={() => deleteWord(word.id)} className="text-slate-700 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100">✕</button>
-                    </div>
-                  ))}
+                    )) : (
+                      <p className="col-span-full text-center text-slate-600 py-10 italic">لا توجد كلمات مطابقة</p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         {activeTab === 'SYNC' && (
-          <div className="max-w-3xl mx-auto space-y-8 animate-in zoom-in duration-500">
-            <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 space-y-8 shadow-2xl relative overflow-hidden">
+          <div className="max-w-4xl mx-auto space-y-8 animate-in zoom-in duration-500">
+            <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 space-y-12 shadow-2xl relative overflow-hidden">
               <div className="text-center relative z-10">
-                <h3 className="text-3xl font-black text-white mb-3">🔄 مزامنة البيانات</h3>
-                <p className="text-slate-500 font-medium">اربط جدول Google Sheet (بصيغة CSV) لسحب الكلمات تلقائياً</p>
+                <h3 className="text-4xl font-black text-white mb-4">🚀 المزامنة والرفع الذكي</h3>
+                <p className="text-slate-400 font-medium">أضف مئات الكلمات في ثوانٍ عبر Excel أو Google Sheets</p>
               </div>
 
-              <div className="bg-amber-500/10 border border-amber-500/20 p-8 rounded-[2rem] space-y-5">
-                <p className="text-amber-500 font-black text-center">تنسيق الجدول المطلوبة:</p>
-                <div className="grid grid-cols-2 gap-3 text-center">
-                   <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                       <p className="text-[10px] text-slate-500 font-bold mb-1">العمود A</p>
-                       <p className="text-white font-black text-sm">اسم التصنيف</p>
-                   </div>
-                   <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                       <p className="text-[10px] text-slate-500 font-bold mb-1">العمود B</p>
-                       <p className="text-white font-black text-sm">الكلمة السرية</p>
-                   </div>
+              <div className="space-y-6 relative z-10">
+                <div className="bg-slate-950 border border-slate-800 rounded-[2.5rem] p-10 space-y-8">
+                  <h4 className="text-amber-500 font-black text-xl flex items-center gap-3">
+                    <span className="bg-amber-500 text-slate-950 w-8 h-8 rounded-full flex items-center justify-center text-sm">!</span>
+                    دليل تجهيز الملف (CSV)
+                  </h4>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 space-y-3 shadow-lg">
+                      <div className="text-emerald-400 text-3xl font-black opacity-30">01</div>
+                      <p className="text-white font-bold text-sm">تجهيز الجدول</p>
+                      <p className="text-slate-500 text-xs leading-relaxed">افتح ملف Excel واجعل العمود الأول (A) لاسم التصنيف، والعمود الثاني (B) للكلمة السرية.</p>
+                    </div>
+                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 space-y-3 shadow-lg">
+                      <div className="text-emerald-400 text-3xl font-black opacity-30">02</div>
+                      <p className="text-white font-bold text-sm">تنسيق الحفظ</p>
+                      <p className="text-slate-500 text-xs leading-relaxed">اختر "حفظ باسم" ثم حدد الصيغة بصيغة CSV.</p>
+                    </div>
+                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 space-y-3 shadow-lg">
+                      <div className="text-emerald-400 text-3xl font-black opacity-30">03</div>
+                      <p className="text-white font-bold text-sm">بدء الرفع</p>
+                      <p className="text-slate-500 text-xs leading-relaxed">ارفع الملف من جهازك أو استخدم الرابط المباشر.</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-4">
-                <input 
-                  type="text" 
-                  value={syncUrl}
-                  onChange={(e) => setSyncUrl(e.target.value)}
-                  placeholder="ضع رابط الـ CSV هنا..."
-                  className="w-full bg-white border-4 border-slate-100 rounded-[1.5rem] px-6 py-5 text-slate-900 font-black outline-none focus:border-amber-400 transition-all shadow-inner"
-                />
-                <button 
-                  onClick={smartSyncFromUrl}
-                  disabled={isSyncing || !syncUrl}
-                  className="w-full bg-amber-500 text-slate-950 font-black py-6 rounded-[1.5rem] hover:bg-amber-400 active:scale-95 transition-all shadow-xl disabled:opacity-40"
-                >
-                  {isSyncing ? 'جاري المزامنة...' : 'تحديث قاعدة البيانات الآن 🚀'}
-                </button>
-              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="bg-slate-950 p-10 rounded-[2.5rem] border border-slate-800 flex flex-col items-center justify-center gap-6 shadow-2xl hover:border-emerald-500/30 transition-all group">
+                    <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">📁</div>
+                    <div className="text-center">
+                      <h5 className="text-white font-black mb-2">رفع ملف محلي</h5>
+                      <label className="bg-emerald-500 text-slate-950 px-8 py-4 rounded-2xl font-black cursor-pointer hover:bg-emerald-400 transition-all shadow-xl inline-block">
+                        اختر الملف الآن
+                        <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                      </label>
+                    </div>
+                  </div>
 
-              <div className="text-center">
-                <p className="text-slate-600 font-bold text-xs mb-4">أو قم برفع ملف يدوي</p>
-                <input 
-                  type="file" 
-                  accept=".csv" 
-                  onChange={handleLocalSmartFile}
-                  className="text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-black file:bg-slate-800 file:text-slate-200"
-                />
+                  <div className="bg-slate-950 p-10 rounded-[2.5rem] border border-slate-800 flex flex-col items-center justify-center gap-4 shadow-2xl hover:border-amber-500/30 transition-all group">
+                    <div className="w-20 h-20 bg-amber-500/10 rounded-full flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">🌐</div>
+                    <div className="text-center w-full">
+                      <h5 className="text-white font-black mb-2">المزامنة السحابية</h5>
+                      <input 
+                        type="text" 
+                        value={syncUrl} 
+                        onChange={(e) => setSyncUrl(e.target.value)} 
+                        placeholder="رابط ملف CSV..." 
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm mb-4 outline-none focus:border-amber-500 font-bold"
+                      />
+                      <button 
+                        onClick={smartSyncFromUrl} 
+                        disabled={isSyncing || !syncUrl} 
+                        className="w-full bg-amber-500 text-slate-950 font-black py-4 rounded-xl hover:bg-amber-400 shadow-xl disabled:opacity-30 transition-all"
+                      >
+                        {isSyncing ? 'جاري السحب...' : 'مزامنة الرابط 🚀'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
       </main>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+      `}} />
     </div>
   );
 };
