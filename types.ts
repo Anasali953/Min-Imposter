@@ -50,6 +50,7 @@ export interface Room {
   currentCategoryName?: string;
   winner?: 'PLAYERS' | 'IMPOSTERS';
   lastActivity: number;
+  createdAt: number; // حقل جديد للتحليلات
 }
 
 export interface TranslationSet {

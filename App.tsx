@@ -140,7 +140,8 @@ const App: React.FC = () => {
                   location 
                 }],
                 secretWord: '',
-                lastActivity: Date.now()
+                lastActivity: Date.now(),
+                createdAt: Date.now() // تم التحديث هنا
               };
               updateRoom(newRoom);
               setCurrentPlayerId(newId);

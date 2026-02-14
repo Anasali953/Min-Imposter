@@ -40,7 +40,7 @@ const EntryScreen: React.FC<Props> = ({ onCreate, onJoin, onAdminOpen, t }) => {
   const createDemoRoom = () => {
     const demoCode = "9999";
     const hostId = "host_" + Math.random().toString(36).substr(2, 5);
-    // Removed 'imposterWord' as it's not defined in the Room type
+    // Fixed: Added missing 'createdAt' property to demoRoom to satisfy the Room interface
     const demoRoom: Room = {
       code: demoCode,
       categories: ['country', 'food'],
@@ -56,7 +56,8 @@ const EntryScreen: React.FC<Props> = ({ onCreate, onJoin, onAdminOpen, t }) => {
         { id: 'v3', name: t.title === 'مين امبوستر؟' ? 'علي' : 'Ali', isHost: false, score: 0, isImposter: false, isJudge: false, hasVoted: false },
       ],
       secretWord: '',
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
+      createdAt: Date.now()
     };
     
     localStorage.setItem(`room_${demoCode}`, JSON.stringify(demoRoom));
