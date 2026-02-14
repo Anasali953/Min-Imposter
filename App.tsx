@@ -54,7 +54,7 @@ const App: React.FC = () => {
 
   if (showAdmin) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
+      <div className="min-h-screen bg-slate-50 text-slate-800 p-4 md:p-8 font-primary">
         <AdminDashboard onBack={() => setShowAdmin(false)} t={t} />
       </div>
     );
@@ -92,7 +92,6 @@ const App: React.FC = () => {
               const existing = localStorage.getItem(`room_${code}`);
               const roomData: Room | null = existing ? JSON.parse(existing) : null;
               if (roomData) {
-                // Check if user is already in (like in demo)
                 const existingPlayer = roomData.players.find(p => p.name === name);
                 if (existingPlayer) {
                   setRoom(roomData);
@@ -122,7 +121,6 @@ const App: React.FC = () => {
             onCreate={(name, location) => {
               const code = Math.floor(1000 + Math.random() * 9000).toString();
               const newId = Math.random().toString(36).substr(2, 9);
-              // Removed 'imposterWord' as it's not defined in the Room type
               const newRoom: Room = {
                 code,
                 categories: ['country'],

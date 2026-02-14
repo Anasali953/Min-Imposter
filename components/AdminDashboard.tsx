@@ -96,11 +96,13 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
       const catName = row[0].trim(); 
       const secret = row[1].trim();  
       if (catName.toLowerCase().includes('category') || catName.includes('تصنيف')) return;
+      
       let category = newCats.find(c => c.ar === catName);
       if (!category) {
         category = { id: 'cat_' + Math.random().toString(36).substr(2, 5), ar: catName, en: catName };
         newCats.push(category);
       }
+      
       const isDuplicate = newWords.some(w => w.categoryId === category!.id && w.secret === secret);
       if (!isDuplicate) {
         newWords.push({ id: 'w_' + idx + '_' + Date.now(), categoryId: category.id, secret });
@@ -108,7 +110,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
       }
     });
     saveToStorage(newCats, newWords);
-    alert(`✅ نجاح! تم إضافة ${addedCount} كلمة جديدة وتحديث التصنيفات.`);
+    alert(`✅ نجاح! تم تحديث البيانات بنجاح.`);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -130,8 +132,17 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
   const smartSyncFromUrl = async () => {
     if (!syncUrl) return;
     setIsSyncing(true);
+    
+    let finalUrl = syncUrl;
+    if (syncUrl.includes('docs.google.com/spreadsheets/d/')) {
+      const match = syncUrl.match(/\/d\/(.+?)\//);
+      if (match && match[1]) {
+        finalUrl = `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv`;
+      }
+    }
+
     try {
-      const response = await fetch(syncUrl);
+      const response = await fetch(finalUrl);
       if (!response.ok) throw new Error('Network response was not ok');
       const text = await response.text();
       const rows = text.split('\n').filter(line => line.trim()).map(row => 
@@ -139,7 +150,7 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
       );
       processSmartData(rows);
     } catch (err) {
-      alert('❌ فشل سحب البيانات');
+      alert('❌ فشل سحب البيانات. تأكد من أن الرابط متاح للجميع (Public).');
     } finally {
       setIsSyncing(false);
     }
@@ -160,7 +171,6 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
     return grouped;
   }, [words, wordSearch]);
 
-  // Statistics Calculation
   const stats = useMemo(() => {
     const totalFinished = activeRooms.filter(r => r.winner).length;
     const playerWins = activeRooms.filter(r => r.winner === 'PLAYERS').length;
@@ -185,127 +195,90 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
   }, [activeRooms, categories]);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
-      {/* Modals */}
+    <div className="max-w-4xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
+      <header className="flex justify-between items-center bg-white/80 backdrop-blur-xl p-6 rounded-[2.5rem] border border-white shadow-sm gap-4">
+        <button onClick={onBack} className="bg-slate-100 text-slate-500 w-12 h-12 rounded-2xl flex items-center justify-center font-black hover:bg-slate-200 transition-all active:scale-90">←</button>
+        <h2 className="text-xl font-fun font-black text-slate-800 flex items-center gap-3">
+          <span className="bg-amber-400 text-white p-2 rounded-xl text-[10px] font-bold">ADMIN</span>
+          {t.adminDashboard}
+        </h2>
+        <div className="w-12"></div>
+      </header>
+
+      <nav className="flex bg-white/60 backdrop-blur-md p-1.5 rounded-3xl border border-white shadow-sm gap-1 overflow-x-auto no-scrollbar">
+        {[
+          { id: 'OVERVIEW', label: 'الإحصائيات', icon: '📊' },
+          { id: 'CATEGORIES', label: 'التصنيفات', icon: '📑' },
+          { id: 'WORDS', label: 'الكلمات', icon: '🔤' },
+          { id: 'SYNC', label: 'المزامنة', icon: '🔄' },
+        ].map(tab => (
+          <button 
+            key={tab.id} 
+            onClick={() => setActiveTab(tab.id as AdminTab)} 
+            className={`flex-1 min-w-[100px] py-3 rounded-[1.2rem] font-black text-[10px] flex items-center justify-center gap-2 transition-all ${activeTab === tab.id ? 'bg-white text-slate-800 shadow-sm border border-slate-100' : 'text-slate-400 hover:text-slate-600'}`}
+          >
+            <span className="text-lg">{tab.icon}</span>
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </nav>
+
       {modal.type && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl">
-          <div className="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in duration-200">
-            <h3 className="text-2xl font-black text-slate-800 mb-6 text-center">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/10 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white/95 backdrop-blur-xl w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl border border-white animate-in zoom-in duration-200">
+            <h3 className="text-xl font-black text-slate-800 mb-6 text-center">
               {modal.type === 'CATEGORY' ? 'إضافة تصنيف' : 'إضافة كلمات'}
             </h3>
-            <div className="space-y-4 text-right">
+            <div className="space-y-4">
               {modal.type === 'CATEGORY' ? (
-                <input type="text" placeholder="اسم التصنيف" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-900 font-bold outline-none focus:border-amber-400" value={catForm.ar} onChange={e => setCatForm({...catForm, ar: e.target.value})} autoFocus />
+                <input type="text" placeholder="اسم التصنيف" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-800 font-bold outline-none focus:border-amber-400 transition-all" value={catForm.ar} onChange={e => setCatForm({...catForm, ar: e.target.value})} autoFocus />
               ) : (
-                <input type="text" placeholder="الكلمة السرية" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-900 font-bold outline-none focus:border-emerald-400" value={wordForm.secret} onChange={e => setWordForm({...wordForm, secret: e.target.value})} autoFocus onKeyDown={e => e.key === 'Enter' && handleAddWord(true)} />
+                <input type="text" placeholder="الكلمة السرية" className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-5 py-4 text-slate-800 font-bold outline-none focus:border-emerald-400 transition-all" value={wordForm.secret} onChange={e => setWordForm({...wordForm, secret: e.target.value})} autoFocus onKeyDown={e => e.key === 'Enter' && handleAddWord(true)} />
               )}
-              <div className="flex gap-2">
-                <button onClick={() => modal.type === 'WORD' ? handleAddWord(true) : handleAddCategory()} className="flex-1 bg-emerald-50 text-emerald-600 font-black py-4 rounded-2xl border border-emerald-100">حفظ مستمر</button>
-                <button onClick={() => modal.type === 'WORD' ? handleAddWord(false) : handleAddCategory()} className="flex-1 bg-slate-800 text-white font-black py-4 rounded-2xl">حفظ وإغلاق</button>
+              <div className="flex gap-2 pt-2">
+                <button onClick={() => modal.type === 'WORD' ? handleAddWord(true) : handleAddCategory()} className="flex-1 bg-emerald-50 text-emerald-600 font-black py-4 rounded-2xl border border-emerald-100 text-sm hover:bg-emerald-100 transition-all">حفظ مستمر</button>
+                <button onClick={() => modal.type === 'WORD' ? handleAddWord(false) : handleAddCategory()} className="flex-1 bg-slate-800 text-white font-black py-4 rounded-2xl text-sm hover:bg-slate-900 transition-all">حفظ وإغلاق</button>
               </div>
-              <button onClick={() => setModal({ type: null })} className="w-full text-slate-400 font-bold py-2 text-sm">إلغاء</button>
+              <button onClick={() => setModal({ type: null })} className="w-full text-slate-400 font-bold py-2 text-xs">إلغاء</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <header className="flex flex-col md:flex-row justify-between items-center bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 shadow-2xl gap-6">
-        <div className="text-center md:text-right">
-          <h2 className="text-3xl font-black text-white flex items-center justify-center md:justify-start gap-3">
-             <span className="bg-amber-500 text-slate-950 p-2 rounded-xl text-[10px] font-black uppercase">DASHBOARD</span>
-             لوحة التحكم والتحليل
-          </h2>
-        </div>
-        <button onClick={onBack} className="bg-white text-slate-900 px-8 py-2 rounded-xl font-black hover:bg-slate-100 shadow-lg active:scale-95 transition-all">خروج 🎮</button>
-      </header>
-
-      {/* Navigation - Fixed to show CATEGORIES */}
-      <nav className="sticky top-4 z-50 flex bg-slate-900/90 backdrop-blur-md p-2 rounded-3xl border border-slate-800/50 shadow-2xl overflow-x-auto no-scrollbar">
-        {[
-          { id: 'OVERVIEW', label: 'الإحصائيات', icon: '📊' },
-          { id: 'CATEGORIES', label: 'التصنيفات', icon: '📑' },
-          { id: 'WORDS', label: 'بنك الكلمات', icon: '🔤' },
-          { id: 'SYNC', label: 'المزامنة والرفع', icon: '🔄' },
-        ].map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id as AdminTab)} className={`flex-1 min-w-[120px] py-4 rounded-2xl font-black text-[11px] flex items-center justify-center gap-2 transition-all ${activeTab === tab.id ? 'bg-slate-700 text-white border border-slate-600 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
-            <span className="text-lg">{tab.icon}</span><span>{tab.label}</span>
-          </button>
-        ))}
-      </nav>
-
-      {/* Main Content */}
-      <main>
+      <main className="animate-in slide-in-from-bottom-4 duration-500">
         {activeTab === 'OVERVIEW' && (
-          <div className="space-y-8 animate-in slide-in-from-bottom-4">
-            {/* Top Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 text-center shadow-xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 blur-3xl rounded-full"></div>
-                <p className="text-[10px] text-slate-500 font-black mb-4 uppercase tracking-widest">التصنيفات</p>
-                <p className="text-7xl font-black text-emerald-400">{categories.length}</p>
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white/80 border border-white p-6 rounded-[2rem] shadow-sm text-center">
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">إجمالي الكلمات</p>
+                <p className="text-4xl font-black text-amber-500">{words.length}</p>
               </div>
-              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 text-center shadow-xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 blur-3xl rounded-full"></div>
-                <p className="text-[10px] text-slate-500 font-black mb-4 uppercase tracking-widest">إجمالي الكلمات</p>
-                <p className="text-7xl font-black text-amber-400">{words.length}</p>
-              </div>
-              <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 text-center shadow-xl relative overflow-hidden group">
-                <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 blur-3xl rounded-full"></div>
-                <p className="text-[10px] text-slate-500 font-black mb-4 uppercase tracking-widest">الغرف النشطة</p>
-                <p className="text-7xl font-black text-white">{activeRooms.length}</p>
+              <div className="bg-white/80 border border-white p-6 rounded-[2rem] shadow-sm text-center">
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">الغرف النشطة</p>
+                <p className="text-4xl font-black text-emerald-500">{activeRooms.length}</p>
               </div>
             </div>
 
-            {/* Performance Analysis */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 shadow-2xl space-y-8">
-                <h3 className="text-xl font-black text-white flex items-center gap-3">
-                  <span className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400">📈</span> تحليل توازن اللعبة
-                </h3>
-                <div className="space-y-6">
-                  <div>
-                    <div className="flex justify-between text-[10px] font-black text-slate-400 mb-2 uppercase">
-                      <span>فوز المواطنين</span>
-                      <span className="text-emerald-400">%{stats.totalFinished ? Math.round((stats.playerWins / stats.totalFinished) * 100) : 0}</span>
-                    </div>
-                    <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full shadow-[0_0_15px_rgba(16,185,129,0.5)] transition-all duration-1000" style={{ width: `${stats.totalFinished ? (stats.playerWins / stats.totalFinished) * 100 : 0}%` }}></div>
-                    </div>
+            <div className="bg-white/80 border border-white p-8 rounded-[2.5rem] shadow-sm space-y-6">
+              <h3 className="text-lg font-black text-slate-700 flex items-center gap-2"><span>📈</span> ميزان اللعب</h3>
+              <div className="space-y-6">
+                <div>
+                  <div className="flex justify-between text-[10px] font-black text-slate-400 mb-2 uppercase">
+                    <span>فوز المواطنين</span>
+                    <span className="text-emerald-500">%{stats.totalFinished ? Math.round((stats.playerWins / stats.totalFinished) * 100) : 0}</span>
                   </div>
-                  <div>
-                    <div className="flex justify-between text-[10px] font-black text-slate-400 mb-2 uppercase">
-                      <span>فوز المنتحل (Imposter)</span>
-                      <span className="text-red-400">%{stats.totalFinished ? Math.round((stats.imposterWins / stats.totalFinished) * 100) : 0}</span>
-                    </div>
-                    <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden">
-                      <div className="bg-red-500 h-full shadow-[0_0_15px_rgba(239,68,68,0.5)] transition-all duration-1000" style={{ width: `${stats.totalFinished ? (stats.imposterWins / stats.totalFinished) * 100 : 0}%` }}></div>
-                    </div>
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                    <div className="bg-emerald-400 h-full transition-all duration-1000" style={{ width: `${stats.totalFinished ? (stats.playerWins / stats.totalFinished) * 100 : 0}%` }}></div>
                   </div>
                 </div>
-                <div className="pt-4 border-t border-slate-800 text-[10px] text-slate-500 font-bold uppercase tracking-widest text-center">
-                  بناءً على {stats.totalFinished} جولة مكتملة
-                </div>
-              </div>
-
-              <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 shadow-2xl space-y-6">
-                <h3 className="text-xl font-black text-white flex items-center gap-3">
-                  <span className="p-2 bg-amber-500/20 rounded-lg text-amber-400">🔥</span> التصنيفات الأكثر لعباً
-                </h3>
-                <div className="space-y-4">
-                  {stats.sortedCats.length > 0 ? stats.sortedCats.map((cat, i) => (
-                    <div key={i} className="flex items-center justify-between bg-slate-950/50 p-4 rounded-2xl border border-slate-800 group hover:border-amber-500/30 transition-all">
-                      <div className="flex items-center gap-4">
-                        <span className="text-slate-600 font-black text-xs">{i + 1}</span>
-                        <span className="text-white font-bold">{cat.name}</span>
-                      </div>
-                      <span className="bg-slate-800 text-slate-400 px-3 py-1 rounded-full text-[10px] font-black">
-                        {cat.count} مرة
-                      </span>
-                    </div>
-                  )) : (
-                    <div className="text-center py-20 text-slate-600 font-bold italic">لا توجد بيانات استخدام حالياً</div>
-                  )}
+                <div>
+                  <div className="flex justify-between text-[10px] font-black text-slate-400 mb-2 uppercase">
+                    <span>فوز المنتحل</span>
+                    <span className="text-red-400">%{stats.totalFinished ? Math.round((stats.imposterWins / stats.totalFinished) * 100) : 0}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                    <div className="bg-red-400 h-full transition-all duration-1000" style={{ width: `${stats.totalFinished ? (stats.imposterWins / stats.totalFinished) * 100 : 0}%` }}></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -313,70 +286,49 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
         )}
 
         {activeTab === 'CATEGORIES' && (
-          <div className="bg-slate-900 rounded-[2.5rem] border border-slate-800 shadow-2xl overflow-hidden animate-in fade-in duration-500">
-            <div className="p-8 border-b border-slate-800 bg-slate-950/20 flex flex-col md:flex-row justify-between items-center gap-4">
-               <div>
-                  <h3 className="text-xl font-black text-white">📑 إدارة التصنيفات</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-1">المجموع: {categories.length}</p>
-               </div>
-               <div className="flex gap-4 w-full md:w-auto">
-                 <input 
-                   type="text" 
-                   placeholder="بحث عن تصنيف..."
-                   className="flex-1 md:w-64 bg-slate-950 border border-slate-800 rounded-2xl px-5 py-3 text-white text-sm focus:border-amber-500 outline-none transition-all"
-                   value={catSearch}
-                   onChange={e => setCatSearch(e.target.value)}
-                 />
-                 <button onClick={() => setModal({ type: 'CATEGORY' })} className="bg-emerald-500 text-slate-950 px-6 py-3 rounded-2xl font-black text-sm hover:bg-emerald-400 transition-all">
-                   + تصنيف جديد
-                 </button>
-               </div>
+          <div className="space-y-4">
+            <div className="flex gap-3 px-2 mb-4">
+              <input type="text" placeholder="بحث عن تصنيف..." className="flex-1 bg-white/80 border border-white rounded-2xl px-5 py-3 text-slate-700 font-bold focus:border-amber-400 outline-none shadow-sm" value={catSearch} onChange={e => setCatSearch(e.target.value)} />
+              <button onClick={() => setModal({ type: 'CATEGORY' })} className="bg-amber-400 text-white px-6 py-3 rounded-2xl font-black text-sm shadow-md">+</button>
             </div>
-            <div className="divide-y divide-slate-800 max-h-[600px] overflow-y-auto custom-scrollbar">
-              {filteredCategories.length > 0 ? filteredCategories.map(cat => (
-                <div key={cat.id} className="p-6 md:p-8 flex justify-between items-center hover:bg-slate-800/30 group">
-                  <div className="flex-1">
-                    <p className="font-black text-xl text-white group-hover:text-emerald-400 transition-colors">{cat.ar}</p>
-                    <p className="text-[9px] text-slate-600 font-bold uppercase mt-1">ID: {cat.id}</p>
-                  </div>
-                  <div className="flex gap-6 items-center">
-                    <div className="text-left hidden md:block">
-                        <p className="text-[9px] font-black text-slate-500 uppercase">الكلمات</p>
-                        <p className="font-black text-white text-xl">{words.filter(w => w.categoryId === cat.id).length}</p>
+            <div className="grid grid-cols-1 gap-3">
+              {filteredCategories.map(cat => (
+                <div key={cat.id} className="bg-white/80 border border-white p-5 rounded-[2rem] flex justify-between items-center group hover:shadow-md transition-all">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center text-xl">📑</div>
+                    <div>
+                      <p className="font-black text-slate-800">{cat.ar}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">{words.filter(w => w.categoryId === cat.id).length} كلمة</p>
                     </div>
-                    <button onClick={() => deleteCategory(cat.id)} className="bg-red-500/10 text-red-500 p-4 rounded-2xl hover:bg-red-500 hover:text-white transition-all">🗑️</button>
                   </div>
+                  <button onClick={() => deleteCategory(cat.id)} className="bg-red-50 text-red-500 p-3 rounded-xl opacity-0 group-hover:opacity-100 transition-all">🗑️</button>
                 </div>
-              )) : (
-                <div className="p-20 text-center text-slate-600 font-bold">لم يتم العثور على تصنيفات</div>
-              )}
+              ))}
             </div>
           </div>
         )}
 
         {activeTab === 'WORDS' && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 p-4 rounded-3xl border border-slate-800 sticky top-[90px] z-40 flex gap-4 shadow-2xl backdrop-blur-md bg-opacity-80">
-              <input type="text" placeholder="بحث سريع عن كلمة..." className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold outline-none focus:border-emerald-500 shadow-inner" value={wordSearch} onChange={e => setWordSearch(e.target.value)} />
+          <div className="space-y-4">
+            <div className="bg-white/50 backdrop-blur px-2 py-2 rounded-2xl mb-4 border border-white/50">
+               <input type="text" placeholder="بحث عن كلمة..." className="w-full bg-white border border-slate-100 rounded-xl px-5 py-3 text-slate-700 font-bold outline-none focus:border-emerald-400 shadow-sm" value={wordSearch} onChange={e => setWordSearch(e.target.value)} />
             </div>
             {categories.map(cat => {
               const catWords = filteredWordsGrouped[cat.id] || [];
               if (wordSearch && catWords.length === 0) return null;
               return (
-                <div key={cat.id} className="bg-slate-900 rounded-[2.5rem] border border-slate-800 overflow-hidden shadow-xl animate-in fade-in duration-500">
-                  <div className="p-6 bg-slate-950/50 border-b border-slate-800 flex justify-between items-center px-10">
-                    <h3 className="font-black text-xl text-white">{cat.ar} <span className="text-slate-600 text-xs font-bold">({catWords.length} كلمة)</span></h3>
-                    <button onClick={() => setModal({ type: 'WORD', categoryId: cat.id })} className="bg-emerald-500 text-slate-950 px-5 py-2 rounded-xl font-black text-xs hover:bg-emerald-400 transition-all shadow-lg">+ إضافة سريع</button>
+                <div key={cat.id} className="bg-white/80 border border-white rounded-[2rem] overflow-hidden shadow-sm mb-4">
+                  <div className="p-5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center px-6">
+                    <h3 className="font-black text-slate-700 text-sm">{cat.ar}</h3>
+                    <button onClick={() => setModal({ type: 'WORD', categoryId: cat.id })} className="bg-emerald-500 text-white px-4 py-1.5 rounded-xl font-black text-[10px]">+ إضافة</button>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 p-8 max-h-[500px] overflow-y-auto custom-scrollbar">
-                    {catWords.length > 0 ? catWords.map(word => (
-                      <div key={word.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex justify-between items-center group hover:border-emerald-500 transition-all">
-                        <span className="text-slate-300 font-bold text-xs truncate">{word.secret}</span>
-                        <button onClick={() => deleteWord(word.id)} className="text-slate-700 hover:text-red-500 text-[10px] opacity-0 group-hover:opacity-100 transition-all p-1">✕</button>
+                  <div className="p-5 flex flex-wrap gap-2">
+                    {catWords.map(word => (
+                      <div key={word.id} className="bg-white border border-slate-100 px-3 py-2 rounded-xl flex items-center gap-2 group hover:border-emerald-200 transition-all">
+                        <span className="text-xs font-bold text-slate-600">{word.secret}</span>
+                        <button onClick={() => deleteWord(word.id)} className="text-slate-300 hover:text-red-500 text-[10px] group-hover:opacity-100 opacity-0 transition-all">✕</button>
                       </div>
-                    )) : (
-                      <p className="col-span-full text-center text-slate-600 py-10 italic">لا توجد كلمات مطابقة</p>
-                    )}
+                    ))}
                   </div>
                 </div>
               );
@@ -385,84 +337,59 @@ const AdminDashboard: React.FC<Props> = ({ onBack, t }) => {
         )}
 
         {activeTab === 'SYNC' && (
-          <div className="max-w-4xl mx-auto space-y-8 animate-in zoom-in duration-500">
-            <div className="bg-slate-900 p-10 rounded-[3rem] border border-slate-800 space-y-12 shadow-2xl relative overflow-hidden">
-              <div className="text-center relative z-10">
-                <h3 className="text-4xl font-black text-white mb-4">🚀 المزامنة والرفع الذكي</h3>
-                <p className="text-slate-400 font-medium">أضف مئات الكلمات في ثوانٍ عبر Excel أو Google Sheets</p>
+          <div className="space-y-6">
+            <div className="bg-white/80 border border-white p-8 rounded-[2.5rem] shadow-sm space-y-8">
+              <div className="text-center space-y-2">
+                <span className="text-5xl">🚀</span>
+                <h3 className="text-xl font-black text-slate-800">المزامنة من Google Sheets</h3>
+                <p className="text-slate-400 text-[11px] font-medium px-4">اربط ملفك مباشرة وسيتم تحديث الكلمات والتصنيفات في ثوانٍ</p>
               </div>
 
-              <div className="space-y-6 relative z-10">
-                <div className="bg-slate-950 border border-slate-800 rounded-[2.5rem] p-10 space-y-8">
-                  <h4 className="text-amber-500 font-black text-xl flex items-center gap-3">
-                    <span className="bg-amber-500 text-slate-950 w-8 h-8 rounded-full flex items-center justify-center text-sm">!</span>
-                    دليل تجهيز الملف (CSV)
-                  </h4>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 space-y-3 shadow-lg">
-                      <div className="text-emerald-400 text-3xl font-black opacity-30">01</div>
-                      <p className="text-white font-bold text-sm">تجهيز الجدول</p>
-                      <p className="text-slate-500 text-xs leading-relaxed">افتح ملف Excel واجعل العمود الأول (A) لاسم التصنيف، والعمود الثاني (B) للكلمة السرية.</p>
-                    </div>
-                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 space-y-3 shadow-lg">
-                      <div className="text-emerald-400 text-3xl font-black opacity-30">02</div>
-                      <p className="text-white font-bold text-sm">تنسيق الحفظ</p>
-                      <p className="text-slate-500 text-xs leading-relaxed">اختر "حفظ باسم" ثم حدد الصيغة بصيغة CSV.</p>
-                    </div>
-                    <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 space-y-3 shadow-lg">
-                      <div className="text-emerald-400 text-3xl font-black opacity-30">03</div>
-                      <p className="text-white font-bold text-sm">بدء الرفع</p>
-                      <p className="text-slate-500 text-xs leading-relaxed">ارفع الملف من جهازك أو استخدم الرابط المباشر.</p>
-                    </div>
-                  </div>
+              <div className="grid grid-cols-1 gap-4">
+                <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 space-y-4">
+                   <p className="text-[10px] text-slate-500 font-black uppercase text-center">ضع رابط Google Sheet هنا</p>
+                   <input 
+                    type="text" 
+                    value={syncUrl} 
+                    onChange={(e) => setSyncUrl(e.target.value)} 
+                    placeholder="https://docs.google.com/spreadsheets/d/..." 
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-700 text-xs font-bold outline-none focus:border-amber-400 transition-all"
+                  />
+                  <button 
+                    onClick={smartSyncFromUrl} 
+                    disabled={isSyncing || !syncUrl} 
+                    className="w-full bg-amber-400 text-white font-black py-4 rounded-xl hover:bg-amber-500 shadow-md disabled:opacity-30 transition-all text-sm"
+                  >
+                    {isSyncing ? 'جاري السحب...' : 'بدء المزامنة 🔄'}
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="bg-slate-950 p-10 rounded-[2.5rem] border border-slate-800 flex flex-col items-center justify-center gap-6 shadow-2xl hover:border-emerald-500/30 transition-all group">
-                    <div className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">📁</div>
-                    <div className="text-center">
-                      <h5 className="text-white font-black mb-2">رفع ملف محلي</h5>
-                      <label className="bg-emerald-500 text-slate-950 px-8 py-4 rounded-2xl font-black cursor-pointer hover:bg-emerald-400 transition-all shadow-xl inline-block">
-                        اختر الملف الآن
-                        <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-950 p-10 rounded-[2.5rem] border border-slate-800 flex flex-col items-center justify-center gap-4 shadow-2xl hover:border-amber-500/30 transition-all group">
-                    <div className="w-20 h-20 bg-amber-500/10 rounded-full flex items-center justify-center text-4xl group-hover:scale-110 transition-transform">🌐</div>
-                    <div className="text-center w-full">
-                      <h5 className="text-white font-black mb-2">المزامنة السحابية</h5>
-                      <input 
-                        type="text" 
-                        value={syncUrl} 
-                        onChange={(e) => setSyncUrl(e.target.value)} 
-                        placeholder="رابط ملف CSV..." 
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-white text-sm mb-4 outline-none focus:border-amber-500 font-bold"
-                      />
-                      <button 
-                        onClick={smartSyncFromUrl} 
-                        disabled={isSyncing || !syncUrl} 
-                        className="w-full bg-amber-500 text-slate-950 font-black py-4 rounded-xl hover:bg-amber-400 shadow-xl disabled:opacity-30 transition-all"
-                      >
-                        {isSyncing ? 'جاري السحب...' : 'مزامنة الرابط 🚀'}
-                      </button>
-                    </div>
-                  </div>
+                <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100 flex flex-col items-center gap-4">
+                   <p className="text-[10px] text-slate-500 font-black uppercase">أو ارفع ملف CSV يدوياً</p>
+                   <label className="bg-slate-800 text-white px-8 py-4 rounded-2xl font-black cursor-pointer hover:bg-slate-900 transition-all shadow-md inline-block text-sm">
+                     📁 اختيار ملف
+                     <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
+                   </label>
                 </div>
               </div>
+            </div>
+
+            <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-[2rem] space-y-3">
+               <h4 className="text-indigo-600 font-black text-sm">💡 كيف يعمل الرابط؟</h4>
+               <p className="text-indigo-400 text-[10px] leading-relaxed">
+                 1. افتح ملف Google Sheets الخاص بك.<br/>
+                 2. اضغط Share واجعل الملف "Anyone with the link can view".<br/>
+                 3. انسخ الرابط والصقه هنا، وسنقوم تلقائياً بجلب البيانات منه.
+               </p>
             </div>
           </div>
         )}
       </main>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
       `}} />
     </div>
   );
